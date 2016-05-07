@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="content-type" content="text/html;charset=utf-8" />
+    <title>Import Delicious Bookmarks to Diigo (no 255 character limit on descriptions!)</title>
+
+<script>
+// Bookmark-file parsing code bug-fixed and extended from original by guapibai@vip.qq.com
+// Original source: https://github.com/hohogpb/NETSCAPE-Bookmark.js
+// Reads a <!DOCTYPE NETSCAPE-Bookmark-file-1> ; this format used in a Delicious-exported 
+// HTML file into an object called nsBookmark.
+(function () {
+  'use strict';
+
+  var nsBookmark = function() {
+
+    this.bookmark_item = function() {
+      this.name = '';
+      this.type = '';
+      this.children = [];
+      this.add_date = 0;
+      this.last_modified = 0;
+      this.url = '';
+      this.icon = '';
+      this.tags = '';          // MM: added
+      this.description = '';   // MM: added
+      this.private_bookmark = false;  // MM: added
+    };
+
+    // search @match from position @start in string @src
+    // if found return @[true, start index, end index+1]
+    // if not found return @[false]
+    this.search = function (src, start, match) {
+      var src_len = src.length;
+      var match_len = match.length;
+      var end = src_len - match_len;
+
+      for(var pos_s = start; pos_s <= end; pos_s++) {
+        var matched = true;
+        for(var pos_m = 0; pos_m < match_len; pos_m++){
+          if (src[pos_s+pos_m] != match[pos_m]) {
+            matched = false;
+            break;
+          }
+        } 
+        if (matched == true) {
+        return [true, pos_s, pos_s+match_len];
+        }
+      }
+      return [false];
+    }
+
+    // search next tag(<.*>) from @start in @src 
+    // if found return @[true, start index, end index]
+    // if not found return @[false]
+    this.search_next_tag = function (src, start) {
+      var src_len = src.length;
+
+      // search tag open
+      var tag_open_pos = src.indexOf('<', start);
+      if (tag_open_pos < 0)
+        return [false];
+
+      // search tag close
+      var tag_close_pos = -1;
+      var pos = tag_open_pos;
+
+      var str_flag = 0;
+      while (pos < src_len) {
+        if (src[pos] == '"')
+          str_flag++;
+
+        if (src[pos] == '>' && (str_flag%2 == 0)) {
+          tag_close_pos = pos;
+          break;
+        }
+        pos++;
+      }
+      return [true, tag_open_pos, tag_close_pos];
+    }
+
+    // search tag name in @src from @start to @end 
+    // and return its value in uppercase 
+    this.get_tag_type = function (src, start, end) {
+      var pos = start+1;
+      var tag_name_start = pos;
+
+      // search start
+      while (pos < end) {
+        if (src[pos] != ' ' && src[pos] != '\t') {
+        tag_name_start = pos;
+        break;
+        }
+        pos++;
+      }
+
+      var tag_name_end = end-1;
+      // search end
+      while (pos < end) {
+        if (src[pos] == ' ' || src[pos] == '\t') {
+        tag_name_end = pos - 1;
+        break;
+        }
+        pos++;
+      }
+
+      return src.substring(tag_name_start, tag_name_end+1).toUpperCase();
+    }
+  
+    // check char blank
+    this.isblank = function (ch) {
+      if (ch == ' ' || ch == '\t')
+        return true;
+      return false;
+    }
+  
+    // search attributes from @start to @end in @src
+    // etc ...<a href="" created="" >asdf</a>
+    //        ^ @start              ^ @end
+    // return k/v
+    // etc {start:'..', created:'..'}
+    this.get_attributes = function get_attributes(src, start, end) {
+      var meet_quote = 0;
+      var pos = start+1;
+      // skip blanks
+      while(pos < end) {
+        if (this.isblank(src[pos])) {
+          break;
+        }
+        pos++;
+      }
+
+      var key_vals = {};
+      var key = [null, null];
+      var val = [null, null];
+
+      while(pos <= end) {
+        if (key[0] == null) {
+          // key 还没有start值的时候
+          if (! this.isblank(src[pos]))
+            key[0] = pos;
+        } else if (key[1] == null) {
+          // key 还没有end值但有start的时候
+          if (this.isblank(src[pos]) || src[pos] == '=')
+            key[1] = pos - 1;
+        } else if (val[0] == null){
+          if (src[pos] == '"')
+            val[0] = pos + 1;
+        } else if (val[1] == null) {
+          if (src[pos] == '"')
+            val[1] = pos - 1;
+        } else {
+          key = src.substring(key[0], key[1]+1);
+          key_vals[key] = val;
+          key = [null, null];
+          val = [null, null];
+        }
+        pos++;
+      }
+
+      return key_vals;
+    }
+
+    // Everything above this line is support for the one important method, that follows:
+    this.parse = function(text) {
+      var cursor = 0;
+
+      var first_dl = [false];
+      while (true) {
+        var tag_pos = this.search_next_tag(text, cursor);
+        if (tag_pos[0] == false) {
+          break;
+        }
+        var tag_type = this.get_tag_type(text, tag_pos[1], tag_pos[2]);
+        if (tag_type == 'DL') {
+          first_dl = [true, tag_pos[1], tag_pos[2]];
+          break;
+        }
+        cursor = tag_pos[2]+1;
+      }
+
+      var first_dl_node = new this.bookmark_item();
+      first_dl_node.name = 'root';
+      first_dl_node.type = 'folder';          
+      first_dl.push(first_dl_node);
+
+    
+      var cursor = first_dl[2]+1;
+      var dl_stack = [first_dl];
+      var next_dl_name = "";
+
+      while (dl_stack.length > 0) {
+        var top = dl_stack[dl_stack.length-1];
+        var cur_dl = top;
+      
+        while (true) {
+          var tag_pos = this.search_next_tag(text, cursor);
+          var tag_type = this.get_tag_type(text, tag_pos[1], tag_pos[2]);
+
+          if (tag_type == "/DL") {
+            dl_stack.pop();
+            cursor = tag_pos[2]+1;
+            break;
+          } 
+          else if (tag_type == "DT") {       
+            var dt_after = this.search_next_tag(text, tag_pos[2]+1);
+            var tag_type = this.get_tag_type(text, dt_after[1], dt_after[2]);
+            if (tag_type == "H3") {                 
+              var h3_close = this.search_next_tag(text, dt_after[2]+1);               
+              next_dl_name = text.substring(dt_after[2]+1, h3_close[1]);
+              cursor = h3_close[2]+1;
+            } 
+            else if (tag_type == "A") {           
+              var a_open = dt_after;
+              var a_close = this.search_next_tag(text, a_open[2]+1);
+              var attributes = this.get_attributes(text, a_open[1], a_open[2]);
+            
+              var dt_name = text.substring(a_open[2]+1, a_close[1]);
+          
+              var new_dt_node = new this.bookmark_item();
+              new_dt_node.type = 'link';
+              new_dt_node.name = dt_name;
+              new_dt_node.url = text.substring(attributes['HREF'][0], attributes['HREF'][1]+1);  // MM: fixed an off-by-one error in 2nd operand, but real problem is how operands are calculated in the first place
+
+              // MM added: support for TAGS and PRIVATE
+              new_dt_node.tags = text.substring(attributes['TAGS'][0], attributes['TAGS'][1]+1);
+              if (text.substring(attributes['PRIVATE'][0], attributes['PRIVATE'][1]+1) == "1") {
+                new_dt_node.private_bookmark = true;
+              }
+
+              if (attributes['ICON']) {
+                new_dt_node.icon = text.substring(attributes['ICON'][0], attributes['ICON'][1]);                                
+              }
+              cur_dl[3].children.push(new_dt_node);
+              cursor = a_close[2]+1;
+            } 
+          } else if (tag_type == "DL") {
+            var new_dl_node = new this.bookmark_item();
+            new_dl_node.name = next_dl_name;
+            new_dl_node.type = 'folder';
+          
+            // 新节点添加到当前dl的字节点中去
+            var cur_dl_bookmark = cur_dl[3];
+            cur_dl_bookmark.children.push(new_dl_node);
+
+            var new_dl = [true, tag_pos[1], tag_pos[2], new_dl_node];
+            dl_stack.push(new_dl);
+            cursor = tag_pos[2]+1;
+
+            break;
+          } 
+          else if (tag_type == "DD") {  //MM: added. "Description" area for bookmarks
+            cursor = tag_pos[2]+1;
+            var eol = this.search(text, cursor, '\n'); 
+            var end = eol[2];
+            var desc = text.substring(cursor, end);
+            //console.log("Description: " + desc);
+            // An ugly way to reference the most recent DT item, to which this DD belongs:
+            cur_dl[3].children[cur_dl[3].children.length-1].description = desc;
+          }
+          else {                        
+            cursor = tag_pos[2]+1;  // move the cursor past the tag, it wasn't a supported type.
+          }
+        }
+      }
+
+      return first_dl_node;
+    }
+  }
+
+  window.nsBookmark = nsBookmark;
+}());
+
+// Event handler that runs when the page is loaded:
+document.addEventListener('DOMContentLoaded', function (e) {
+  var result = document.getElementById("progress output area");  // result points to the page area for output
+  var file_input = document.getElementById("file_input");
+
+  // Check for the various File API support.
+  if (window.File && window.FileReader && window.FileList) {
+    file_input.addEventListener('change', onFileChange, false);
+  }
+  else {
+    result.innerHTML = "The HTML5 File APIs are not fully supported in this browser. Cannot proceed.";
+  }
+});
+    
+// Event handler that runs on file input:
+function onFileChange() {
+  var file = document.getElementById('file_input').files[0];
+  var reader = new FileReader();
+  reader.readAsText(file);
+  reader.onload = function(f) {
+    var bookmark = new nsBookmark();   // the object that does the parsing
+    var bookmark_tree = bookmark.parse(this.result);  // the parsed output
+        
+    importDeliciousBookmarksToDiigo(bookmark_tree);
+  }
+}
+
+// https://www.diigo.com/tools/api
+// I tried to test whether undocumented POST variables maybe could be controlled, but 
+// what I tried didn't work. I tried adding the parameter: 
+// "&created_at="+ encodeURIComponent("2008/04/30 06:28:54 +0800");
+// but that parameter was apparently just ignored.
+function diigoApiSaveSingleBookmark(params) {
+  var xhr = new XMLHttpRequest();
+  var url = "https://secure.diigo.com/api/v2/bookmarks?" + params;
+
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState == 4) {  // 4 == DONE state. We are not interested in others.
+      if (xhr.status == 200) {  // 200 == OKAY status
+        var response = JSON.parse(xhr.responseText);
+        //console.log("Response from server: " + response.message + " for url: " + url);
+        document.getElementById("server response area").innerHTML += 
+          "Response from server: " + response.message + ", code: " + response.code + "</br>";
+      }
+      else if (xhr.status == 400) {
+        console.log("400 Bad Request: Some request parameters are invalid or the API rate limit is exceeded.");
+        // TODO: this var still in scope, so perform retries ...doing them here probably a bad idea since the onreadystatechange routine would be re-entered
+      }
+      else { // TODO: handle other statuses related to DONE state
+        document.getElementById("server response area").innerHTML += 
+          "Error of some kind trying to bookmark " + url + ", XMLHttpRequest status: " + xhr.status + "</br>";      
+        // TODO: this var still in scope, so perform retries ...doing them here probably a bad idea since the onreadystatechange routine would be re-entered
+      }
+    }
+  }
+  
+  xhr.open("POST", url, true);  // true == asynchronous-mode send()
+  xhr.send();
+}
+
+
+function bookmarklet() {
+  var url = location.href;
+  var title = document.title || url;
+  var desc = (window.getSelection ? window.getSelection().toString() : 
+              document.getSelection ? document.getSelection()  : 
+              document.selection.createRange().text);
+  window.open('https://www.diigo.com/post?url=' + encodeURIComponent(url) + 
+              '&title=' + encodeURIComponent(title) + 
+              '&desc=' + encodeURIComponent(desc) + 
+              '&client=simplelet#main',
+              '_blank',
+              'menubar=no,height=580,width=608,toolbar=no,scrollbars=no,status=no');
+              
+  // TODO: submit the HTML form, which is now open and filled out.
+  // http://stackoverflow.com/questions/4683331/how-to-fill-in-form-field-and-submit-using-javascript
+}
+
+// https://www.diigo.com/tools/api
+function diigoApiReadSingleBookmark() {
+  var xmlhttp = new XMLHttpRequest();
+  var url = "https://secure.diigo.com/api/v2/bookmarks?user=joel&count=1";
+  
+  xmlhttp.onreadystatechange = function() {
+    if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+      var bookmark = JSON.parse(xmlhttp.responseText);
+      console.log(bookmark);
+      document.getElementById("server response area").innerHTML += 
+        "Title: " + bookmark[0].title + "</br>" + 
+        "URL: " + bookmark[0].url + "</br>" +
+        "Description: " + bookmark[0].desc;  // etc. (user, tags, shared, created_at, updated_at, comments, annotations)
+    }
+    else if (xmlhttp.readyState == 4 && xmlhttp.status == 400) {
+      console.log("400 Bad Request: Some request parameters are invalid or the API rate limit is exceeded.");
+    }
+//    else // handle errors or other status changes {
+//      document.getElementById("server response area").innerHTML += "Error of some kind.</br>";
+//    }
+  }
+  
+  xmlhttp.open("GET",url,true);
+  xmlhttp.send();
+}
+
+
+// Iterates over an nsBookmark object and calls diigoApiSaveSingleBookmark to save each
+// bookmark entry to Diigo, intact, unlike what the official import feature does, which is
+// that it unnecessarily truncates your descriptions to 255 characters. Unlike the 
+// official import feature, though, the original save-date of the bookmark will be lost.
+function importDeliciousBookmarksToDiigo(bookmarks)
+{
+  var result = document.getElementById("progress output area"); // the output area
+
+  // nsBookmarks has an array named "children" and each of those is a bookmark item.
+  for (i = 1646; i < bookmarks.children.length; i++) { 
+      var title = bookmarks.children[i].name;
+      var url = bookmarks.children[i].url;
+      var desc = bookmarks.children[i].description;
+      var tags = bookmarks.children[i].tags + ",from_Delicious";
+      if (bookmarks.children[i].private_bookmark == true) {
+        shared = "no";
+      }
+      else {
+        shared = "yes";
+      }
+      
+      var params = "title=" + encodeURIComponent(title) + 
+                   "&url=" + encodeURIComponent(url) + 
+                   "&tags=" + encodeURIComponent(tags) + 
+                   "&desc=" + encodeURIComponent(desc) +
+                   "&shared=" + shared;
+  
+      // TODO: it would be cooler if this output as a table.
+      result.innerHTML += "Bookmarking: <b>URL: </b>" + url + " <b>Title: </b>" + title + "</br>    <b>Tags: </b>" + tags + "</br>    <b>Description: </b>" + desc + "</br></br>";
+ 
+      diigoApiSaveSingleBookmark(params);
+  }
+}
+</script>
+
+</head>
+<body>
+
+<!-- Commented out unit tests -->
+<!--
+<p>The first test is not a use of the Diigo API, but based on the bookmarklet.</p>
+
+<p>The API is to POST to https://secure.diigo.com/api/v2/bookmarks whereas the bookmarklet 
+does a GET to https://www.diigo.com/post filling in an HTML form for you, but not 
+submitting it.</p>
+
+<button type="button" onclick="bookmarklet();">Run bookmarklet code</button></br></br>
+-->
+
+<!--
+<p>The second test button is to read a bookmark using the Diigo API. You may be asked for 
+your Diigo credentials.</p>
+
+<button type="button" onclick="diigoApiReadSingleBookmark();">Read a bookmark via API</button></br></br>
+-->
+
+<!--
+<p> The third test button is to save a bookmark using the Diigo API and give it a 1000+ 
+character description. You will be asked for your Diigo credentials.</p>
+
+<button type="button" id="SaveSingleBookmark" onclick="diigoApiSaveSingleBookmark('title=foo&url=http%3A%2F%2Fwww.diigo.com&shared=yes&tags=diigo,bookmark&desc=abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdFOOB');">Save a bookmark via API</button></br></br>
+-->
+<!-- Preferred style is to set up this button using DOM object manipulation in Javascript...in the HTML head in onload event script or whatever-->
+
+<!-- Ghetto output area for users -->
+<p id="server response area"></p>
+
+<p>Import Delicious bookmarks from a (previously exported) HTML file. You may be asked for 
+your Diigo credentials, but this is Diigo's HTTP Basic Authentication. This script does 
+not handle your credentials; they are entered into the browser itself.</p>
+
+<!-- File selection input form -->
+<input type="file" id="file_input"></br></br>
+
+<!-- Redundant second output area for users -->
+<div id="progress output area"></div>
+
+</body>
+</html>
