@@ -280,14 +280,21 @@ function diigoApiSaveSingleBookmark(params) {
   var xhr = new XMLHttpRequest();  // const
   var url = `https://secure.diigo.com/api/v2/bookmarks?${params}`;  // const
   var outputArea = document.getElementById('server response area').innerHTML;  // let
+
   xhr.onreadystatechange = function() {
     if (xhr.readyState === 4) { // 4: DONE state. We are not interested in other states.
       if (xhr.status === 200) { // 200: OKAY status
-        var response = JSON.parse(xhr.responseText);  // const
-        outputArea += `Response from server: ${response.message}, code: ${response.code}</br>`;
+        var response;
+        try {
+          response = JSON.parse(xhr.responseText);  // const
+        }
+        catch (e) {
+          console.log("JSON parsing error while parsing:" + xhr.responseText);
+        }
+        //outputArea += `Response from server: ${response.message}, code: ${response.code}</br>`;
       } else if (xhr.status === 400) {
-        outputArea +=
-          '<b>400 Bad Request: Request parameters are invalid or API rate limit exceeded.</b></br>';
+        //outputArea +=
+        //  '<b>400 Bad Request: Request parameters are invalid or API rate limit exceeded.</b></br>';
       } else { // TODO: handle other statuses related to DONE state
         outputArea +=
          `Error of some kind trying to bookmark ${url}, XMLHttpRequest status: ${xhr.status}</br>`;
@@ -351,11 +358,22 @@ function diigoApiReadSingleBookmark() {
 // that it unnecessarily truncates your descriptions to 255 characters. Unlike the
 // official import feature, though, the original save-date of the bookmark will be lost.
 function importDeliciousBookmarksToDiigo(bookmarks) {
+  var apiKey = document.getElementById('diigoApiKeyInput').value;  // const
   var result = document.getElementById('progress output area'); // const // the output area
-  var progressOutputFragment = document.createDocumentFragment();
 
-  // NSBookmarks has an array named "children" and each of those is a bookmark item.
-  for (var i = 0; i < bookmarks.children.length; i++) {  // let
+  var progressOutputFragment = document.createDocumentFragment();
+  var progressBar = document.getElementById('uploadProgressBar');  // const
+  var progressPercent = 0;  // let
+
+  var delay = 900;  // TODO: reduce this once I figure out what they allow
+  var i = 0;
+  var loopId = 0;
+
+  progressBar.max = bookmarks.children.length;  
+
+  // Rate-limiting the bookmark-saving using setInterval(). Works like a loop until clearInterval().
+  loopId = setInterval(
+  function slowlySendBookmarksToDiigo() {
     var title = bookmarks.children[i].name; // const
     var url = bookmarks.children[i].url; // const
     var desc = bookmarks.children[i].description; // const
@@ -365,20 +383,29 @@ function importDeliciousBookmarksToDiigo(bookmarks) {
     if (bookmarks.children[i].private_bookmark === false) {
       shared = 'yes';
     }
-
+    
     var params = `title=${encodeURIComponent(title)}&url=${encodeURIComponent(url)}` +  // const
-      `&tags=${encodeURIComponent(tags)}&desc=${encodeURIComponent(desc)}&shared=${shared}`;
+      `&tags=${encodeURIComponent(tags)}&desc=${encodeURIComponent(desc)}&shared=${shared}` +
+      `&key=${apiKey}`;
+      
+//    var paragraph = document.createElement("P");
+//	paragraph.innerHTML = `Bookmarking: <b>URL: </b>${url}</br><b>Title: </b>${title}</br>` +
+//      `<b>Tags: </b>${tags}</br><b>Description: </b>${desc}`;
+//	progressOutputFragment.appendChild(paragraph);
 
-    var paragraph = document.createElement("P");
-	paragraph.innerHTML = `Bookmarking: <b>URL: </b>${url}</br><b>Title: </b>${title}</br>` +
-      `<b>Tags: </b>${tags}</br><b>Description: </b>${desc}`;
-	progressOutputFragment.appendChild(paragraph);
-	
     diigoApiSaveSingleBookmark(params);
-  }
-  
-  // TODO: provide more helpful progress output than just updating all at once at the end!
-  result.appendChild(progressOutputFragment);
+
+    progressBar.value = i;
+    progressPercent = Math.floor((100 / progressBar.max) * progressBar.value);
+    progressBar.getElementsByTagName('span')[0].textContent = progressPercent;
+
+    // TODO: provide more helpful progress output
+    // result.appendChild(progressOutputFragment);
+    
+    if (++i >= bookmarks.children.length) {
+      clearInterval(loopId);  // breaks out of the repeat-on-interval loop
+    }
+  }, delay, bookmarks);  // note: IE 9 and below do not support passing arguments via setInterval.
 }
 
 
@@ -415,6 +442,11 @@ document.addEventListener('DOMContentLoaded', function() {
 </head>
 <body>
 
+<p>Enter your <a href="https://www.diigo.com/api_keys/new/">Diigo API key</a> here (required) 
+before submitting your bookmarks for processing:</p>
+
+<input type="text" id="diigoApiKeyInput"></br></br>
+
 <!-- Commented out unit tests -->
 <!--
 <p>The first test is not a use of the Diigo API, but based on the bookmarklet.</p>
@@ -435,21 +467,25 @@ your Diigo credentials.</p>
 
 <!--
 <p> The third test button is to save a bookmark using the Diigo API and give it a 1000+ 
-character description. You will be asked for your Diigo credentials.</p>
+character description. You may be asked for your Diigo credentials.</p>
 
-<button type="button" id="SaveSingleBookmark" onclick="diigoApiSaveSingleBookmark('title=foo&url=http%3A%2F%2Fwww.diigo.com&shared=yes&tags=diigo,bookmark&desc=abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdFOOB');">Save a bookmark via API</button></br></br>
+<button type="button" id="SaveSingleBookmark" onclick="diigoApiSaveSingleBookmark('key=REPLACE_WITH_YOUR_API_KEY&title=foo&url=http%3A%2F%2Fwww.diigo.com&shared=yes&tags=APIv2_test&desc=abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd%20abcdabcdabcdabcdabcdabcdabcdabcdFOOB');">Save a bookmark via API</button></br></br>
 -->
 <!-- Preferred style is to set up this button using DOM object manipulation in Javascript...in the HTML head in onload event script or whatever-->
 
 <!-- Ghetto output area for users -->
 <p id="server response area"></p>
 
+<!-- API has changed, now requires API key and probably new rate-limiting -->
 <p>Import Delicious bookmarks from a (previously exported) HTML file. You may be asked for 
 your Diigo credentials, but this is Diigo's HTTP Basic Authentication. This script does 
 not handle your credentials; they are entered into the browser itself.</p>
 
 <!-- File selection input form -->
 <input type="file" id="fileInput"></br></br>
+
+<!-- Graphical progress bar of bookmark upload -->
+<progress value="0" max="100" id="uploadProgressBar"> <span>0</span>%</progress>
 
 <!-- Redundant second output area for users -->
 <div id="progress output area"></div>
