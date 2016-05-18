@@ -12,7 +12,7 @@ Open the HTML file in a modern web browser. As of May 2016, you will be required
 
 # Known Limitations
 * This script relies on the Diigo API, whose documentation states that URLs and Descriptions for bookmarks are limited to "250" characters, but this limit is not actually enforced in practice. That may change in the future. 
-* The "created on" dates for each bookmark cannot be specified using the Diigo API, so these dates will be lost (bookmarks will have a creation time of when you ran this script). To remedy this after running this script, you can run the Diigo official import feature on the same bookmark file, and it will update all of the creation timestamps to be correct, without truncating the existing description fields.
+* The "created on" dates for each bookmark cannot be specified using the Diigo API, so these dates will be lost (bookmarks will have a creation time of when you ran this script). In testing, it appears there is an unreliable workaround: if after running this script, you  run the Diigo official import feature on the same bookmark file, it will update the creation timestamps to their original dates, without truncating the existing description fields. But in practice, some of the time this doesn't work.
 
 # Acknowledgements
 The file parsing code is a fork of "nsBookmark" from https://github.com/hohogpb/NETSCAPE-Bookmark.js
