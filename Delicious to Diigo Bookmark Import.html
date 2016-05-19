@@ -302,15 +302,16 @@ function diigoApiSaveSingleBookmark(params) {
     }
   };
 
+  xhr.withCredentials = true;  // browser will prompt for HTTP Basic Auth user:password
   xhr.open('POST', url, true); // true: asynchronous-mode send()
   xhr.send();
 }
 
-/*
+
 function bookmarklet() {
-  const url = location.href;
-  const title = document.title || url;
-  const desc = (window.getSelection ? window.getSelection().toString() :
+  var url = location.href;  // const
+  var title = document.title || url; // const
+  var desc = (window.getSelection ? window.getSelection().toString() :  // const
     document.getSelection ? document.getSelection() :
     document.selection.createRange().text);
 
@@ -328,19 +329,19 @@ function bookmarklet() {
 
 // https://www.diigo.com/tools/api
 function diigoApiReadSingleBookmark() {
-  const xmlhttp = new XMLHttpRequest();
-  const url = 'https://secure.diigo.com/api/v2/bookmarks?user=joel&count=1';
+  var xhr = new XMLHttpRequest();  // const
+  var url = 'https://secure.diigo.com/api/v2/bookmarks?user=joel&count=1&key=REPLACE_WITH_YOUR_API_KEY'; // const
 
-  xmlhttp.onreadystatechange = function () {
-    if (xmlhttp.readyState === 4 && xmlhttp.status === 200) {
-      const bookmark = JSON.parse(xmlhttp.responseText);
+  xhr.onreadystatechange = function () {
+    if (xhr.readyState === 4 && xhr.status === 200) {
+      var bookmark = JSON.parse(xhr.responseText);  // const
       console.log(bookmark);
       document.getElementById('server response area').innerHTML +=
         'Title: ' + bookmark[0].title + '</br>' +
         'URL: ' + bookmark[0].url + '</br>' +
         'Description: ' + bookmark[0].desc;
         // Not shown: (user, tags, shared, created_at, updated_at, comments, annotations)
-    } else if (xmlhttp.readyState === 4 && xmlhttp.status === 400) {
+    } else if (xhr.readyState === 4 && xhr.status === 400) {
       console.log('400 Bad Request: Request parameters invalid or API rate limit is exceeded.');
     }
     //    else // handle errors or other status changes {
@@ -348,10 +349,11 @@ function diigoApiReadSingleBookmark() {
     //    }
   };
 
-  xmlhttp.open('GET', url, true);
-  xmlhttp.send();
+  xhr.withCredentials = true;  // browser will prompt for HTTP Basic Auth user:password
+  xhr.open('GET', url, true);
+  xhr.send();
 }
-*/
+
 
 // Iterates over an NSBookmark object and calls diigoApiSaveSingleBookmark to save each
 // bookmark entry to Diigo, intact, unlike what the official import feature does, which is
@@ -464,7 +466,6 @@ your Diigo credentials.</p>
 
 <button type="button" onclick="diigoApiReadSingleBookmark();">Read a bookmark via API</button></br></br>
 -->
-
 <!--
 <p> The third test button is to save a bookmark using the Diigo API and give it a 1000+ 
 character description. You may be asked for your Diigo credentials.</p>
